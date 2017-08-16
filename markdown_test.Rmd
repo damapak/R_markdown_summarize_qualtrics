@@ -1,0 +1,98 @@
+Qualtrics Survey Report
+========================================================
+
+
+Survey Output:
+
+<!--- can create a wrapper function that lets you browse for a directory, then selects a file with a specified name and imports it.  could possibly combine it with the apply levels to df script to order the factors.
+-->
+
+```{r chunkk, echo=FALSE, comment=NA}
+#options
+options( width = 90 )
+
+#load packages
+library(knitr)
+library(plyr)
+
+#set vars
+prevlevel = list()
+mult_processing <- ""
+outputcolnames <- ""
+
+#create summary tables - loop through survey fields
+for(col in colnames(surveydata)) {
+  
+  #create summary table (frequency table)
+  x <- as.data.frame(table(surveydata[,col]))
+  #rename columns to include original question variable name from qualtrics
+  if (length(colnames(x)) == 1 ) {
+    colnames(x) <- c("Count")
+  } 
+  
+  else {
+    colnames(x) <- c(col,"Count")
+  }
+
+  charsperlevel <- round( sum(nchar(gsub("[^a-z]","",tolower(x[,1])))) / nrow(x) , 1)
+  
+  # mask print for: (1) questions with no responses, (2) unique responses, (3) if 1 response level, (4) if characters per response level >=75 (open-ended responses)
+  if (sum(x$Count) > 0 & nrow(x) != nrecs & nrow(x) != 1 & charsperlevel < 75 ) {
+    
+    outputcolnames <- c(outputcolnames, col)
+    levelz <- list(x[,col])
+    # if response levels are same as previous question
+    if (identical(levelz, prevlevel)) {
+      
+      #continuation of a multiple question item 
+      if (mult_processing == "continue") {
+        multquest <- c(multquest, col)
+      } 
+      
+      #first level match of a series
+      else {
+        multquest <- c( outputcolnames [match( col, outputcolnames) - 1 ] , col )
+      }
+      
+      mult_processing <- "continue"
+    } 
+    
+    #if not identical (no match in current level to prior level)
+    else {
+      #prior match, this one is not - compile the multi-item question results
+      if (mult_processing == "continue") {
+        
+        mult_processing <- "new"  #reset the match counter 
+        tempdf <- surveydata[,c(multquest)]
+        tables_list <- lapply( tempdf, function (x) table(x) )
+        multitem_sum <- ldply ( tables_list, rbind )
+        numcol <- ncol(multitem_sum)
+        
+        #add additional summary columns
+        #count
+        multitem_sum$COUNT <- apply ( multitem_sum, 1, function(x) sum(as.numeric(x[2:numcol])) )
+        #mean
+        multitem_sum$MEAN <- apply ( multitem_sum, 1, function(x) round( sum( seq_along(1:(numcol-1)) * as.numeric( x[2:numcol] )) / sum( as.numeric( x[2:numcol] )) , 3 ) )
+        #percent of responses in top 2
+        multitem_sum$TOP2PCT <- apply ( multitem_sum, 1, function(x) round( sum( as.numeric( x[(numcol-1):numcol] )) / sum( as.numeric( x[2:numcol] )) , 3) )
+        #maximum percent for any category
+        multitem_sum$MAX_PCT <- apply ( multitem_sum, 1 , function(x) round ( max(as.numeric(unlist(x[2:numcol]))) / sum(as.numeric(unlist(x[2:numcol]))) , 3) )
+        
+        #output/print the table
+        print(kable(multitem_sum, col.names=c(colnames(multitem_sum))))
+      }
+    }
+    
+    x$Pct <- round( x$Count / sum(x$Count) , 3)
+    prevlevel <- levelz
+    
+  }
+}
+
+garbage = c("mult_processing","outputcolnames","prevlevel","charsperlevel",
+            "multquest","levelz","tempdf","multitem_sum","numcol","tables_list",
+            "col","nrecs","x")
+
+rm(list = garbage)
+```
+
